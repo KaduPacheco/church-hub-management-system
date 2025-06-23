@@ -45,7 +45,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isInitialized, setIsInitialized] = useState(false);
 
   const fetchUserProfile = async (userId: string) => {
     try {
@@ -59,15 +58,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       if (error) {
         console.error('Erro ao buscar perfil do usuário:', error);
-        
-        if (error.code === 'PGRST116') {
-          console.log('Usuário não encontrado na tabela usuarios');
-          toast({
-            title: "Erro de perfil",
-            description: "Perfil de usuário não encontrado. Entre em contato com o administrador.",
-            variant: "destructive",
-          });
-        }
         return null;
       }
 
@@ -82,69 +72,63 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const redirectUserBasedOnRole = (role: string, clienteId?: string, igrejaId?: string) => {
     console.log('Redirecionando usuário baseado na role:', role);
     
-    switch (role) {
-      case 'superadmin':
-        window.location.href = '/superadmin';
-        break;
-      case 'cliente':
-        window.location.href = '/dashboard';
-        break;
-      case 'admin_igreja':
-        if (igrejaId) {
-          window.location.href = `/church/${igrejaId}`;
-        } else {
+    // Pequeno delay para garantir que o estado foi atualizado
+    setTimeout(() => {
+      switch (role) {
+        case 'superadmin':
+          window.location.href = '/superadmin';
+          break;
+        case 'cliente':
           window.location.href = '/dashboard';
-        }
-        break;
-      default:
-        console.error('Role desconhecida:', role);
-        window.location.href = '/';
-    }
-  };
-
-  const handleAuthStateChange = async (event: string, session: Session | null) => {
-    console.log('Evento de autenticação:', event, session?.user?.id);
-    
-    setSession(session);
-    setUser(session?.user ?? null);
-    
-    if (session?.user) {
-      const profile = await fetchUserProfile(session.user.id);
-      if (profile) {
-        setUserProfile(profile);
-        // Só redireciona no evento SIGNED_IN para evitar loops
-        if (event === 'SIGNED_IN') {
-          redirectUserBasedOnRole(profile.role, profile.cliente_id, profile.igreja_id);
-        }
-      } else {
-        console.error('Não foi possível carregar o perfil do usuário');
-        setUserProfile(null);
+          break;
+        case 'admin_igreja':
+          if (igrejaId) {
+            window.location.href = `/church/${igrejaId}`;
+          } else {
+            window.location.href = '/dashboard';
+          }
+          break;
+        default:
+          console.error('Role desconhecida:', role);
+          window.location.href = '/';
       }
-    } else {
-      setUserProfile(null);
-    }
-    
-    if (!isInitialized) {
-      setLoading(false);
-      setIsInitialized(true);
-    }
+    }, 100);
   };
 
   useEffect(() => {
     console.log('Configurando listener de autenticação');
     
-    // Set up auth state listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(handleAuthStateChange);
-
-    // Check for existing session only once
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      console.log('Sessão existente:', session?.user?.id);
-      
-      if (session?.user) {
-        handleAuthStateChange('INITIAL_SESSION', session);
-      } else {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('Evento de autenticação:', event, session?.user?.id);
+        
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        if (session?.user) {
+          const profile = await fetchUserProfile(session.user.id);
+          if (profile) {
+            setUserProfile(profile);
+            
+            // Só redireciona no login, não no refresh da página
+            if (event === 'SIGNED_IN') {
+              redirectUserBasedOnRole(profile.role, profile.cliente_id, profile.igreja_id);
+            }
+          } else {
+            setUserProfile(null);
+          }
+        } else {
+          setUserProfile(null);
+        }
+        
         setLoading(false);
-        setIsInitialized(true);
+      }
+    );
+
+    // Verificar sessão existente
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) {
+        setLoading(false);
       }
     });
 
