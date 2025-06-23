@@ -48,6 +48,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const fetchUserProfile = async (userId: string) => {
     try {
+      console.log('Buscando perfil do usuário:', userId);
+      
       const { data, error } = await supabase
         .from('usuarios')
         .select('*')
@@ -56,9 +58,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       if (error) {
         console.error('Erro ao buscar perfil do usuário:', error);
+        
+        // Se o usuário não existe na tabela usuarios, pode ser um problema de sincronização
+        if (error.code === 'PGRST116') {
+          console.log('Usuário não encontrado na tabela usuarios');
+          toast({
+            title: "Erro de perfil",
+            description: "Perfil de usuário não encontrado. Entre em contato com o administrador.",
+            variant: "destructive",
+          });
+        }
         return null;
       }
 
+      console.log('Perfil encontrado:', data);
       return data;
     } catch (error) {
       console.error('Erro ao buscar perfil:', error);
@@ -67,6 +80,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const redirectUserBasedOnRole = (role: string, clienteId?: string, igrejaId?: string) => {
+    console.log('Redirecionando usuário baseado na role:', role);
+    
     switch (role) {
       case 'superadmin':
         window.location.href = '/superadmin';
@@ -82,14 +97,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
         break;
       default:
+        console.error('Role desconhecida:', role);
         window.location.href = '/';
     }
   };
 
   useEffect(() => {
+    console.log('Configurando listener de autenticação');
+    
     // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        console.log('Evento de autenticação:', event, session?.user?.id);
+        
         setSession(session);
         setUser(session?.user ?? null);
         
@@ -103,6 +123,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               if (event === 'SIGNED_IN') {
                 redirectUserBasedOnRole(profile.role, profile.cliente_id, profile.igreja_id);
               }
+            } else {
+              console.error('Não foi possível carregar o perfil do usuário');
+              setUserProfile(null);
             }
           }, 0);
         } else {
@@ -115,6 +138,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     // Check for existing session
     supabase.auth.getSession().then(({ data: { session } }) => {
+      console.log('Sessão existente:', session?.user?.id);
+      
       setSession(session);
       setUser(session?.user ?? null);
       
@@ -135,29 +160,49 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const signIn = async (email: string, password: string) => {
     try {
+      console.log('Tentando fazer login com:', email);
+      
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (error) {
+        console.error('Erro no login:', error);
+        
+        let errorMessage = error.message;
+        
+        // Personalizar mensagens de erro
+        if (error.message.includes('Invalid login credentials')) {
+          errorMessage = 'Email ou senha incorretos';
+        } else if (error.message.includes('Email not confirmed')) {
+          errorMessage = 'Email não confirmado. Verifique sua caixa de entrada.';
+        }
+        
         toast({
           title: "Erro no login",
-          description: error.message,
+          description: errorMessage,
           variant: "destructive",
         });
         return { error };
       }
 
+      console.log('Login realizado com sucesso');
       return { error: null };
     } catch (error) {
       console.error('Erro no login:', error);
+      toast({
+        title: "Erro no login",
+        description: "Ocorreu um erro inesperado. Tente novamente.",
+        variant: "destructive",
+      });
       return { error };
     }
   };
 
   const signOut = async () => {
     try {
+      console.log('Fazendo logout');
       await supabase.auth.signOut();
       setUser(null);
       setUserProfile(null);
