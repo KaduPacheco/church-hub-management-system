@@ -1,87 +1,37 @@
 
-import { useState } from "react";
+import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Church, Users, Shield } from "lucide-react";
-import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 
 const Index = () => {
-  const [loginType, setLoginType] = useState<'superadmin' | 'client' | null>(null);
-  const [credentials, setCredentials] = useState({ email: '', password: '' });
+  const { user, userProfile, loading } = useAuth();
 
-  const handleLogin = (type: 'superadmin' | 'client') => {
-    // Simulação de login
-    if (type === 'superadmin') {
-      window.location.href = '/superadmin';
-    } else {
-      window.location.href = '/dashboard';
+  useEffect(() => {
+    // Se o usuário está logado, redireciona baseado na role
+    if (!loading && user && userProfile) {
+      switch (userProfile.role) {
+        case 'superadmin':
+          window.location.href = '/superadmin';
+          break;
+        case 'cliente':
+          window.location.href = '/dashboard';
+          break;
+        case 'admin_igreja':
+          if (userProfile.igreja_id) {
+            window.location.href = `/church/${userProfile.igreja_id}`;
+          } else {
+            window.location.href = '/dashboard';
+          }
+          break;
+      }
     }
-    toast({
-      title: "Login realizado com sucesso!",
-      description: `Bem-vindo ao sistema de gestão de igrejas.`,
-    });
-  };
+  }, [user, userProfile, loading]);
 
-  if (loginType) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <div className="mx-auto mb-4 w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-              {loginType === 'superadmin' ? <Shield className="w-6 h-6 text-blue-600" /> : <Church className="w-6 h-6 text-blue-600" />}
-            </div>
-            <CardTitle className="text-2xl">
-              {loginType === 'superadmin' ? 'Acesso Administrativo' : 'Acesso do Cliente'}
-            </CardTitle>
-            <CardDescription>
-              {loginType === 'superadmin' 
-                ? 'Painel de controle do sistema' 
-                : 'Gerencie suas igrejas'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="email">Email</Label>
-              <Input 
-                id="email" 
-                type="email" 
-                placeholder="seu@email.com"
-                value={credentials.email}
-                onChange={(e) => setCredentials({...credentials, email: e.target.value})}
-              />
-            </div>
-            <div>
-              <Label htmlFor="password">Senha</Label>
-              <Input 
-                id="password" 
-                type="password" 
-                placeholder="••••••••"
-                value={credentials.password}
-                onChange={(e) => setCredentials({...credentials, password: e.target.value})}
-              />
-            </div>
-            <div className="space-y-2">
-              <Button 
-                className="w-full" 
-                onClick={() => handleLogin(loginType)}
-              >
-                Entrar
-              </Button>
-              <Button 
-                variant="ghost" 
-                className="w-full" 
-                onClick={() => setLoginType(null)}
-              >
-                Voltar
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+  const handleLoginClick = () => {
+    window.location.href = '/login';
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50">
@@ -98,6 +48,9 @@ const Index = () => {
                 <p className="text-sm text-gray-500">Sistema de Gestão de Igrejas</p>
               </div>
             </div>
+            <Button onClick={handleLoginClick}>
+              Fazer Login
+            </Button>
           </div>
         </div>
       </header>
@@ -112,65 +65,6 @@ const Index = () => {
             Sistema completo para administração de igrejas, controle de membros, 
             eventos e finanças em uma plataforma moderna e intuitiva.
           </p>
-        </div>
-
-        {/* Login Options */}
-        <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-          <Card className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => setLoginType('superadmin')}>
-            <CardHeader className="text-center">
-              <div className="mx-auto mb-4 w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center">
-                <Shield className="w-8 h-8 text-purple-600" />
-              </div>
-              <CardTitle className="text-2xl">Administrador do Sistema</CardTitle>
-              <CardDescription>
-                Gerencie todos os clientes e configure o sistema
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ul className="space-y-2 text-sm text-gray-600">
-                <li className="flex items-center">
-                  <div className="w-2 h-2 bg-purple-400 rounded-full mr-3"></div>
-                  Cadastro de novos clientes
-                </li>
-                <li className="flex items-center">
-                  <div className="w-2 h-2 bg-purple-400 rounded-full mr-3"></div>
-                  Controle de ativações
-                </li>
-                <li className="flex items-center">
-                  <div className="w-2 h-2 bg-purple-400 rounded-full mr-3"></div>
-                  Monitoramento geral
-                </li>
-              </ul>
-            </CardContent>
-          </Card>
-
-          <Card className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => setLoginType('client')}>
-            <CardHeader className="text-center">
-              <div className="mx-auto mb-4 w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
-                <Users className="w-8 h-8 text-blue-600" />
-              </div>
-              <CardTitle className="text-2xl">Cliente - Igreja</CardTitle>
-              <CardDescription>
-                Acesse o painel da sua igreja
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ul className="space-y-2 text-sm text-gray-600">
-                <li className="flex items-center">
-                  <div className="w-2 h-2 bg-blue-400 rounded-full mr-3"></div>
-                  Gestão de membros
-                </li>
-                <li className="flex items-center">
-                  <div className="w-2 h-2 bg-blue-400 rounded-full mr-3"></div>
-                  Controle financeiro
-                </li>
-                <li className="flex items-center">
-                  <div className="w-2 h-2 bg-blue-400 rounded-full mr-3"></div>
-                  Organização de eventos
-                </li>
-              </ul>
-            </CardContent>
-          </Card>
         </div>
 
         {/* Features */}
