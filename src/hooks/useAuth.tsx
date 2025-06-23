@@ -45,6 +45,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   const fetchUserProfile = async (userId: string) => {
     try {
@@ -59,7 +60,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (error) {
         console.error('Erro ao buscar perfil do usuário:', error);
         
-        // Se o usuário não existe na tabela usuarios, pode ser um problema de sincronização
         if (error.code === 'PGRST116') {
           console.log('Usuário não encontrado na tabela usuarios');
           toast({
@@ -102,56 +102,49 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const handleAuthStateChange = async (event: string, session: Session | null) => {
+    console.log('Evento de autenticação:', event, session?.user?.id);
+    
+    setSession(session);
+    setUser(session?.user ?? null);
+    
+    if (session?.user) {
+      const profile = await fetchUserProfile(session.user.id);
+      if (profile) {
+        setUserProfile(profile);
+        // Só redireciona no evento SIGNED_IN para evitar loops
+        if (event === 'SIGNED_IN') {
+          redirectUserBasedOnRole(profile.role, profile.cliente_id, profile.igreja_id);
+        }
+      } else {
+        console.error('Não foi possível carregar o perfil do usuário');
+        setUserProfile(null);
+      }
+    } else {
+      setUserProfile(null);
+    }
+    
+    if (!isInitialized) {
+      setLoading(false);
+      setIsInitialized(true);
+    }
+  };
+
   useEffect(() => {
     console.log('Configurando listener de autenticação');
     
     // Set up auth state listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        console.log('Evento de autenticação:', event, session?.user?.id);
-        
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        if (session?.user) {
-          // Fetch user profile when authenticated
-          setTimeout(async () => {
-            const profile = await fetchUserProfile(session.user.id);
-            if (profile) {
-              setUserProfile(profile);
-              // Only redirect if user is logging in (not on page refresh)
-              if (event === 'SIGNED_IN') {
-                redirectUserBasedOnRole(profile.role, profile.cliente_id, profile.igreja_id);
-              }
-            } else {
-              console.error('Não foi possível carregar o perfil do usuário');
-              setUserProfile(null);
-            }
-          }, 0);
-        } else {
-          setUserProfile(null);
-        }
-        
-        setLoading(false);
-      }
-    );
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(handleAuthStateChange);
 
-    // Check for existing session
+    // Check for existing session only once
     supabase.auth.getSession().then(({ data: { session } }) => {
       console.log('Sessão existente:', session?.user?.id);
       
-      setSession(session);
-      setUser(session?.user ?? null);
-      
       if (session?.user) {
-        fetchUserProfile(session.user.id).then(profile => {
-          if (profile) {
-            setUserProfile(profile);
-          }
-          setLoading(false);
-        });
+        handleAuthStateChange('INITIAL_SESSION', session);
       } else {
         setLoading(false);
+        setIsInitialized(true);
       }
     });
 
@@ -172,7 +165,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         
         let errorMessage = error.message;
         
-        // Personalizar mensagens de erro
         if (error.message.includes('Invalid login credentials')) {
           errorMessage = 'Email ou senha incorretos';
         } else if (error.message.includes('Email not confirmed')) {
