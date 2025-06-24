@@ -18,15 +18,21 @@ const ProtectedRoute = ({
 
   useEffect(() => {
     if (!loading) {
-      // Se não está logado, redireciona para login
-      if (!user) {
+      // Not logged in
+      if (!user || !userProfile) {
         window.location.href = redirectTo;
         return;
       }
 
-      // Se tem roles específicas e o usuário não tem permissão
-      if (allowedRoles.length > 0 && userProfile && !allowedRoles.includes(userProfile.role)) {
-        // Redireciona baseado na role do usuário
+      // Inactive user
+      if (!userProfile.ativo) {
+        window.location.href = '/login';
+        return;
+      }
+
+      // Check role permissions
+      if (allowedRoles.length > 0 && !allowedRoles.includes(userProfile.role)) {
+        // Redirect based on user role
         switch (userProfile.role) {
           case 'superadmin':
             window.location.href = '/superadmin';
@@ -35,21 +41,11 @@ const ProtectedRoute = ({
             window.location.href = '/dashboard';
             break;
           case 'admin_igreja':
-            if (userProfile.igreja_id) {
-              window.location.href = `/church/${userProfile.igreja_id}`;
-            } else {
-              window.location.href = '/dashboard';
-            }
+            window.location.href = userProfile.igreja_id ? `/church/${userProfile.igreja_id}` : '/dashboard';
             break;
           default:
             window.location.href = '/login';
         }
-        return;
-      }
-
-      // Se o usuário não está ativo
-      if (userProfile && !userProfile.ativo) {
-        window.location.href = '/login';
         return;
       }
     }
@@ -66,13 +62,12 @@ const ProtectedRoute = ({
     );
   }
 
-  // Se não está logado ou não tem permissão, não renderiza nada
-  // (o redirecionamento já foi feito no useEffect)
+  // Don't render if not authenticated or no permission
   if (!user || !userProfile || !userProfile.ativo) {
     return null;
   }
 
-  // Se tem roles específicas e não tem permissão
+  // Check role permissions
   if (allowedRoles.length > 0 && !allowedRoles.includes(userProfile.role)) {
     return null;
   }

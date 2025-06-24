@@ -1,7 +1,6 @@
 
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Church, Users, Shield } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -9,8 +8,8 @@ const Index = () => {
   const { user, userProfile, loading } = useAuth();
 
   useEffect(() => {
-    // Se o usuário está logado, redireciona baseado na role
-    if (!loading && user && userProfile) {
+    // Redirect logged in users to their appropriate dashboard
+    if (!loading && user && userProfile && userProfile.ativo) {
       switch (userProfile.role) {
         case 'superadmin':
           window.location.href = '/superadmin';
@@ -19,11 +18,7 @@ const Index = () => {
           window.location.href = '/dashboard';
           break;
         case 'admin_igreja':
-          if (userProfile.igreja_id) {
-            window.location.href = `/church/${userProfile.igreja_id}`;
-          } else {
-            window.location.href = '/dashboard';
-          }
+          window.location.href = userProfile.igreja_id ? `/church/${userProfile.igreja_id}` : '/dashboard';
           break;
       }
     }
@@ -48,9 +43,11 @@ const Index = () => {
                 <p className="text-sm text-gray-500">Sistema de Gestão de Igrejas</p>
               </div>
             </div>
-            <Button onClick={handleLoginClick}>
-              Fazer Login
-            </Button>
+            {!loading && !user && (
+              <Button onClick={handleLoginClick}>
+                Fazer Login
+              </Button>
+            )}
           </div>
         </div>
       </header>

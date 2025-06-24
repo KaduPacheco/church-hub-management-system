@@ -12,15 +12,26 @@ const Login = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState({ email: '', password: '' });
-  const { signIn, user, loading } = useAuth();
+  const { signIn, user, userProfile, loading } = useAuth();
 
-  // Se já estiver logado, não mostrar a tela de login
+  // Redirect if already logged in
   useEffect(() => {
-    if (!loading && user) {
-      console.log('Usuário já logado, redirecionando...');
-      window.location.href = '/';
+    if (!loading && user && userProfile) {
+      switch (userProfile.role) {
+        case 'superadmin':
+          window.location.href = '/superadmin';
+          break;
+        case 'cliente':
+          window.location.href = '/dashboard';
+          break;
+        case 'admin_igreja':
+          window.location.href = userProfile.igreja_id ? `/church/${userProfile.igreja_id}` : '/dashboard';
+          break;
+        default:
+          window.location.href = '/';
+      }
     }
-  }, [user, loading]);
+  }, [user, userProfile, loading]);
 
   const validateForm = () => {
     const newErrors = { email: '', password: '' };
@@ -49,10 +60,7 @@ const Login = () => {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    console.log('=== FORMULÁRIO DE LOGIN SUBMETIDO ===');
-    
     if (!validateForm()) {
-      console.log('Formulário inválido');
       return;
     }
 
@@ -60,18 +68,9 @@ const Login = () => {
     setErrors({ email: '', password: '' });
     
     try {
-      console.log('Tentando fazer login...');
-      const { error } = await signIn(credentials.email, credentials.password);
-      
-      if (error) {
-        console.log('Erro retornado do signIn:', error);
-        // O erro já é tratado no hook useAuth
-      } else {
-        console.log('Login iniciado com sucesso');
-        // O redirecionamento será feito pelo hook após carregar o perfil
-      }
+      await signIn(credentials.email, credentials.password);
     } catch (error) {
-      console.error('Erro no handleLogin:', error);
+      console.error('Erro no login:', error);
     } finally {
       setIsLoading(false);
     }
@@ -83,7 +82,7 @@ const Login = () => {
       [field]: value
     }));
     
-    // Limpar erro do campo quando começar a digitar
+    // Clear error when user starts typing
     if (errors[field]) {
       setErrors(prev => ({
         ...prev,
@@ -92,7 +91,7 @@ const Login = () => {
     }
   };
 
-  // Mostrar loading enquanto verifica se já está logado
+  // Show loading while checking auth
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center">
