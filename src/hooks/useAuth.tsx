@@ -1,5 +1,5 @@
 
-import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
+import { useState, useEffect, createContext, useContext, ReactNode, useCallback } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
@@ -45,8 +45,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  const fetchUserProfile = async (userId: string) => {
+  const fetchUserProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
     try {
       console.log('Buscando perfil do usuário:', userId);
       
@@ -54,10 +55,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         .from('usuarios')
         .select('*')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
 
       if (error) {
         console.error('Erro ao buscar perfil do usuário:', error);
+        toast({
+          title: "Erro de perfil",
+          description: "Não foi possível carregar o perfil do usuário.",
+          variant: "destructive",
+        });
+        return null;
+      }
+
+      if (!data) {
+        console.error('Usuário não encontrado na tabela usuarios');
+        toast({
+          title: "Usuário não encontrado",
+          description: "Perfil de usuário não encontrado. Entre em contato com o administrador.",
+          variant: "destructive",
+        });
         return null;
       }
 
@@ -67,92 +83,176 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.error('Erro ao buscar perfil:', error);
       return null;
     }
-  };
+  }, []);
 
-  const redirectUserBasedOnRole = (role: string, clienteId?: string, igrejaId?: string) => {
+  const performRedirect = useCallback((role: string, clienteId?: string, igrejaId?: string) => {
     console.log('Redirecionando usuário baseado na role:', role);
     
-    // Pequeno delay para garantir que o estado foi atualizado
+    let redirectUrl = '/';
+    
+    switch (role) {
+      case 'superadmin':
+        redirectUrl = '/superadmin';
+        break;
+      case 'cliente':
+        redirectUrl = '/dashboard';
+        break;
+      case 'admin_igreja':
+        redirectUrl = igrejaId ? `/church/${igrejaId}` : '/dashboard';
+        break;
+      default:
+        console.error('Role desconhecida:', role);
+        redirectUrl = '/';
+    }
+
+    console.log('Redirecionando para:', redirectUrl);
     setTimeout(() => {
-      switch (role) {
-        case 'superadmin':
-          window.location.href = '/superadmin';
-          break;
-        case 'cliente':
-          window.location.href = '/dashboard';
-          break;
-        case 'admin_igreja':
-          if (igrejaId) {
-            window.location.href = `/church/${igrejaId}`;
-          } else {
-            window.location.href = '/dashboard';
-          }
-          break;
-        default:
-          console.error('Role desconhecida:', role);
-          window.location.href = '/';
-      }
+      window.location.href = redirectUrl;
     }, 100);
-  };
+  }, []);
+
+  const handleAuthStateChange = useCallback(async (event: string, session: Session | null) => {
+    console.log('=== AUTH STATE CHANGE ===');
+    console.log('Evento:', event);
+    console.log('Session user ID:', session?.user?.id);
+    console.log('Is processing:', isProcessing);
+
+    // Evita processamento duplicado
+    if (isProcessing && event !== 'SIGNED_OUT') {
+      console.log('Já processando, ignorando evento:', event);
+      return;
+    }
+
+    setIsProcessing(true);
+    setSession(session);
+    setUser(session?.user ?? null);
+
+    try {
+      if (session?.user) {
+        console.log('Usuário logado, buscando perfil...');
+        const profile = await fetchUserProfile(session.user.id);
+        
+        if (profile && profile.ativo) {
+          console.log('Perfil carregado e ativo:', profile);
+          setUserProfile(profile);
+          
+          // Só redireciona em login efetivo, não em refresh de página
+          if (event === 'SIGNED_IN') {
+            console.log('Login detectado, iniciando redirecionamento...');
+            performRedirect(profile.role, profile.cliente_id, profile.igreja_id);
+          }
+        } else if (profile && !profile.ativo) {
+          console.log('Usuário inativo');
+          setUserProfile(null);
+          toast({
+            title: "Acesso negado",
+            description: "Sua conta está inativa. Entre em contato com o administrador.",
+            variant: "destructive",
+          });
+          await supabase.auth.signOut();
+        } else {
+          console.log('Perfil não encontrado ou inválido');
+          setUserProfile(null);
+          await supabase.auth.signOut();
+        }
+      } else {
+        console.log('Usuário não logado');
+        setUserProfile(null);
+      }
+    } catch (error) {
+      console.error('Erro no handleAuthStateChange:', error);
+      setUserProfile(null);
+    } finally {
+      setLoading(false);
+      setIsProcessing(false);
+      console.log('=== FIM AUTH STATE CHANGE ===');
+    }
+  }, [isProcessing, fetchUserProfile, performRedirect]);
 
   useEffect(() => {
-    console.log('Configurando listener de autenticação');
+    console.log('=== INICIALIZANDO AUTH PROVIDER ===');
     
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        console.log('Evento de autenticação:', event, session?.user?.id);
-        
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        if (session?.user) {
-          const profile = await fetchUserProfile(session.user.id);
-          if (profile) {
-            setUserProfile(profile);
-            
-            // Só redireciona no login, não no refresh da página
-            if (event === 'SIGNED_IN') {
-              redirectUserBasedOnRole(profile.role, profile.cliente_id, profile.igreja_id);
+    let mounted = true;
+    
+    const initializeAuth = async () => {
+      try {
+        // Configurar listener de mudanças de auth
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(
+          (event, session) => {
+            if (mounted) {
+              handleAuthStateChange(event, session);
             }
-          } else {
-            setUserProfile(null);
           }
-        } else {
-          setUserProfile(null);
-        }
+        );
+
+        // Verificar sessão existente
+        const { data: { session }, error } = await supabase.auth.getSession();
         
-        setLoading(false);
-      }
-    );
+        if (error) {
+          console.error('Erro ao obter sessão:', error);
+          setLoading(false);
+          return;
+        }
 
-    // Verificar sessão existente
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) {
-        setLoading(false);
-      }
-    });
+        if (mounted) {
+          if (session) {
+            console.log('Sessão existente encontrada');
+            await handleAuthStateChange('INITIAL_SESSION', session);
+          } else {
+            console.log('Nenhuma sessão existente');
+            setLoading(false);
+          }
+        }
 
-    return () => subscription.unsubscribe();
-  }, []);
+        return () => {
+          mounted = false;
+          subscription.unsubscribe();
+        };
+      } catch (error) {
+        console.error('Erro na inicialização:', error);
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    const cleanup = initializeAuth();
+    
+    return () => {
+      mounted = false;
+      cleanup.then(cleanupFn => cleanupFn && cleanupFn());
+    };
+  }, [handleAuthStateChange]);
 
   const signIn = async (email: string, password: string) => {
     try {
-      console.log('Tentando fazer login com:', email);
+      console.log('=== INICIANDO LOGIN ===');
+      console.log('Email:', email);
       
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      setLoading(true);
+      
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: password.trim(),
       });
 
       if (error) {
         console.error('Erro no login:', error);
         
-        let errorMessage = error.message;
+        let errorMessage = 'Erro desconhecido no login';
         
-        if (error.message.includes('Invalid login credentials')) {
-          errorMessage = 'Email ou senha incorretos';
-        } else if (error.message.includes('Email not confirmed')) {
-          errorMessage = 'Email não confirmado. Verifique sua caixa de entrada.';
+        switch (error.message) {
+          case 'Invalid login credentials':
+            errorMessage = 'Email ou senha incorretos';
+            break;
+          case 'Email not confirmed':
+            errorMessage = 'Email não confirmado. Verifique sua caixa de entrada.';
+            break;
+          case 'Too many requests':
+            errorMessage = 'Muitas tentativas de login. Tente novamente em alguns minutos.';
+            break;
+          default:
+            errorMessage = error.message;
         }
         
         toast({
@@ -160,44 +260,62 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           description: errorMessage,
           variant: "destructive",
         });
+        
+        setLoading(false);
         return { error };
       }
 
-      console.log('Login realizado com sucesso');
+      console.log('Login bem-sucedido:', data.user?.id);
       return { error: null };
     } catch (error) {
-      console.error('Erro no login:', error);
+      console.error('Exceção no login:', error);
       toast({
         title: "Erro no login",
         description: "Ocorreu um erro inesperado. Tente novamente.",
         variant: "destructive",
       });
+      setLoading(false);
       return { error };
     }
   };
 
   const signOut = async () => {
     try {
-      console.log('Fazendo logout');
-      await supabase.auth.signOut();
+      console.log('=== FAZENDO LOGOUT ===');
+      setLoading(true);
+      
+      const { error } = await supabase.auth.signOut();
+      
+      if (error) {
+        console.error('Erro no logout:', error);
+      }
+      
+      // Limpar estado local
       setUser(null);
       setUserProfile(null);
       setSession(null);
+      setIsProcessing(false);
+      
+      // Redirecionar para home
       window.location.href = '/';
     } catch (error) {
-      console.error('Erro no logout:', error);
+      console.error('Exceção no logout:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
+  const contextValue = {
+    user,
+    userProfile,
+    session,
+    loading,
+    signIn,
+    signOut,
+  };
+
   return (
-    <AuthContext.Provider value={{
-      user,
-      userProfile,
-      session,
-      loading,
-      signIn,
-      signOut,
-    }}>
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );
