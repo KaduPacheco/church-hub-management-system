@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,6 +6,7 @@ import { Church, Users, Building, Shield, LogOut } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { errorHandler } from "@/utils/errorHandler";
 
 interface Cliente {
   id: string;
@@ -33,13 +33,25 @@ const SuperAdmin = () => {
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.error('Erro ao buscar clientes:', error);
+        errorHandler.logError(error, {
+          action: 'fetchClientes',
+          userMessage: 'Erro ao carregar clientes'
+        });
+        
+        toast({
+          title: "Erro",
+          description: "Erro ao carregar clientes",
+          variant: "destructive",
+        });
         return;
       }
 
       setClientes(data || []);
     } catch (error) {
-      console.error('Erro ao buscar clientes:', error);
+      errorHandler.logError(error, {
+        action: 'fetchClientes',
+        userMessage: 'Erro ao carregar clientes'
+      });
     } finally {
       setLoading(false);
     }
@@ -53,6 +65,12 @@ const SuperAdmin = () => {
         .eq('id', clienteId);
 
       if (error) {
+        errorHandler.logError(error, {
+          action: 'toggleClienteStatus',
+          context: { clienteId, currentStatus },
+          userMessage: 'Erro ao atualizar status do cliente'
+        });
+
         toast({
           title: "Erro",
           description: "Erro ao atualizar status do cliente",
@@ -68,7 +86,17 @@ const SuperAdmin = () => {
 
       fetchClientes();
     } catch (error) {
-      console.error('Erro ao atualizar cliente:', error);
+      errorHandler.logError(error, {
+        action: 'toggleClienteStatus',
+        context: { clienteId, currentStatus },
+        userMessage: 'Erro ao atualizar cliente'
+      });
+      
+      toast({
+        title: "Erro",
+        description: "Erro ao atualizar cliente",
+        variant: "destructive",
+      });
     }
   };
 

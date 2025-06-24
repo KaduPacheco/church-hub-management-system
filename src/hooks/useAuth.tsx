@@ -3,6 +3,7 @@ import { useState, useEffect, createContext, useContext, ReactNode } from 'react
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
+import { errorHandler } from '@/utils/errorHandler';
 
 interface UserProfile {
   id: string;
@@ -55,7 +56,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         .maybeSingle();
 
       if (error) {
-        console.error('Erro ao buscar perfil:', error);
+        errorHandler.logError(error, {
+          action: 'fetchUserProfile',
+          context: { userId },
+          userMessage: 'Erro ao carregar perfil do usuário'
+        });
         return null;
       }
 
@@ -79,7 +84,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       return data;
     } catch (error) {
-      console.error('Erro ao buscar perfil:', error);
+      errorHandler.logError(error, {
+        action: 'fetchUserProfile',
+        context: { userId },
+        userMessage: 'Erro ao carregar perfil do usuário'
+      });
       return null;
     }
   };
@@ -88,45 +97,55 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     let mounted = true;
 
     const initAuth = async () => {
-      // Get initial session
-      const { data: { session: initialSession } } = await supabase.auth.getSession();
-      
-      if (mounted) {
-        setSession(initialSession);
-        setUser(initialSession?.user ?? null);
+      try {
+        // Get initial session
+        const { data: { session: initialSession } } = await supabase.auth.getSession();
         
-        if (initialSession?.user) {
-          const profile = await fetchUserProfile(initialSession.user.id);
-          if (mounted) {
-            setUserProfile(profile);
-          }
-        }
-        
-        setLoading(false);
-      }
-
-      // Listen for auth changes
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(
-        async (event, session) => {
-          if (!mounted) return;
-
-          setSession(session);
-          setUser(session?.user ?? null);
-
-          if (session?.user) {
-            const profile = await fetchUserProfile(session.user.id);
+        if (mounted) {
+          setSession(initialSession);
+          setUser(initialSession?.user ?? null);
+          
+          if (initialSession?.user) {
+            const profile = await fetchUserProfile(initialSession.user.id);
             if (mounted) {
               setUserProfile(profile);
             }
-          } else {
-            setUserProfile(null);
           }
+          
+          setLoading(false);
         }
-      );
 
-      return () => {
-        subscription.unsubscribe();
-      };
+        // Listen for auth changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(
+          async (event, session) => {
+            if (!mounted) return;
+
+            setSession(session);
+            setUser(session?.user ?? null);
+
+            if (session?.user) {
+              const profile = await fetchUserProfile(session.user.id);
+              if (mounted) {
+                setUserProfile(profile);
+              }
+            } else {
+              setUserProfile(null);
+            }
+          }
+        );
+
+        return () => {
+          subscription.unsubscribe();
+        };
+      } catch (error) {
+        errorHandler.logError(error, {
+          action: 'initAuth',
+          userMessage: 'Erro ao inicializar autenticação'
+        });
+        if (mounted) {
+          setLoading(false);
+        }
+      }
     };
 
     initAuth();
@@ -139,28 +158,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const signIn = async (email: string, password: string) => {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
+        email: email.trim().toLowerCase(),
         password: password.trim(),
       });
 
       if (error) {
-        let errorMessage = 'Erro no login';
-        
-        switch (error.message) {
-          case 'Invalid login credentials':
-            errorMessage = 'Email ou senha incorretos';
-            break;
-          case 'Email not confirmed':
-            errorMessage = 'Email não confirmado';
-            break;
-          default:
-            errorMessage = error.message;
-        }
+        const userMessage = errorHandler.getUserMessage(error);
         
         toast({
           title: "Erro no login",
-          description: errorMessage,
+          description: userMessage,
           variant: "destructive",
+        });
+
+        errorHandler.logError(error, {
+          action: 'signIn',
+          context: { email: email.trim().toLowerCase() },
+          userMessage
         });
         
         return { error };
@@ -174,12 +188,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       return { error: null };
     } catch (error) {
-      console.error('Erro no login:', error);
+      const userMessage = 'Ocorreu um erro inesperado no login';
+      
+      errorHandler.logError(error, {
+        action: 'signIn',
+        context: { email: email.trim().toLowerCase() },
+        userMessage
+      });
+      
       toast({
         title: "Erro no login",
-        description: "Ocorreu um erro inesperado.",
+        description: userMessage,
         variant: "destructive",
       });
+      
       return { error };
     }
   };
@@ -194,7 +216,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       // Redirect to home after logout
       window.location.href = '/';
     } catch (error) {
-      console.error('Erro no logout:', error);
+      errorHandler.logError(error, {
+        action: 'signOut',
+        userMessage: 'Erro ao fazer logout'
+      });
     }
   };
 

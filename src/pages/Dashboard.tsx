@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +9,8 @@ import { Plus, Church, Users, Calendar, DollarSign, LogOut } from "lucide-react"
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { errorHandler } from "@/utils/errorHandler";
+import { validateChurchData, sanitizeText } from "@/utils/inputValidation";
 
 interface Igreja {
   id: string;
@@ -29,6 +30,7 @@ const Dashboard = () => {
   const { signOut, userProfile } = useAuth();
   const [churches, setChurches] = useState<Igreja[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [newChurch, setNewChurch] = useState({
     nome: "",
     endereco: "",
@@ -54,13 +56,27 @@ const Dashboard = () => {
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.error('Erro ao buscar igrejas:', error);
+        errorHandler.logError(error, {
+          action: 'fetchChurches',
+          context: { clienteId: userProfile.cliente_id },
+          userMessage: 'Erro ao carregar igrejas'
+        });
+        
+        toast({
+          title: "Erro",
+          description: "Erro ao carregar igrejas",
+          variant: "destructive",
+        });
         return;
       }
 
       setChurches(data || []);
     } catch (error) {
-      console.error('Erro ao buscar igrejas:', error);
+      errorHandler.logError(error, {
+        action: 'fetchChurches',
+        context: { clienteId: userProfile.cliente_id },
+        userMessage: 'Erro ao carregar igrejas'
+      });
     } finally {
       setLoading(false);
     }
@@ -70,15 +86,18 @@ const Dashboard = () => {
     if (!userProfile?.cliente_id) return;
 
     try {
+      // Validate and sanitize input data
+      const validatedData = validateChurchData(newChurch);
+
       const { error } = await supabase
         .from('igrejas')
         .insert({
           cliente_id: userProfile.cliente_id,
-          nome: newChurch.nome,
-          endereco: newChurch.endereco,
-          tipo: newChurch.tipo,
-          pastor_nome: newChurch.pastor_nome,
-          pastor_email: newChurch.pastor_email,
+          nome: validatedData.nome,
+          endereco: validatedData.endereco,
+          tipo: validatedData.tipo,
+          pastor_nome: validatedData.pastor_nome,
+          pastor_email: validatedData.pastor_email,
           membros: 0,
           eventos: 0,
           receitas: 0,
@@ -86,6 +105,12 @@ const Dashboard = () => {
         });
 
       if (error) {
+        errorHandler.logError(error, {
+          action: 'addChurch',
+          context: { clienteId: userProfile.cliente_id, churchName: validatedData.nome },
+          userMessage: 'Erro ao cadastrar igreja'
+        });
+
         toast({
           title: "Erro",
           description: "Erro ao cadastrar igreja",
@@ -102,6 +127,8 @@ const Dashboard = () => {
         pastor_email: ""
       });
 
+      setDialogOpen(false);
+
       toast({
         title: "Igreja adicionada!",
         description: "Nova igreja cadastrada com sucesso.",
@@ -109,8 +136,26 @@ const Dashboard = () => {
 
       fetchChurches();
     } catch (error) {
-      console.error('Erro ao adicionar igreja:', error);
+      errorHandler.logError(error, {
+        action: 'addChurch',
+        context: { clienteId: userProfile.cliente_id },
+        userMessage: 'Dados da igreja inválidos'
+      });
+
+      toast({
+        title: "Erro de validação",
+        description: "Verifique os dados informados e tente novamente.",
+        variant: "destructive",
+      });
     }
+  };
+
+  const handleInputChange = (field: string, value: string) => {
+    const sanitizedValue = sanitizeText(value);
+    setNewChurch(prev => ({
+      ...prev,
+      [field]: sanitizedValue
+    }));
   };
 
   const totalMembers = churches.reduce((sum, church) => sum + church.membros, 0);
@@ -217,7 +262,7 @@ const Dashboard = () => {
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold text-gray-900">Suas Igrejas</h2>
           
-          <Dialog>
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button className="flex items-center space-x-2">
                 <Plus className="w-4 h-4" />
@@ -237,8 +282,9 @@ const Dashboard = () => {
                   <Input
                     id="name"
                     value={newChurch.nome}
-                    onChange={(e) => setNewChurch({...newChurch, nome: e.target.value})}
+                    onChange={(e) => handleInputChange('nome', e.target.value)}
                     placeholder="Congregação Vila Nova"
+                    maxLength={100}
                   />
                 </div>
                 <div>
@@ -246,8 +292,9 @@ const Dashboard = () => {
                   <Input
                     id="address"
                     value={newChurch.endereco}
-                    onChange={(e) => setNewChurch({...newChurch, endereco: e.target.value})}
+                    onChange={(e) => handleInputChange('endereco', e.target.value)}
                     placeholder="Rua das Flores, 123 - Bairro"
+                    maxLength={200}
                   />
                 </div>
                 <div>
@@ -267,8 +314,9 @@ const Dashboard = () => {
                   <Input
                     id="pastorName"
                     value={newChurch.pastor_nome}
-                    onChange={(e) => setNewChurch({...newChurch, pastor_nome: e.target.value})}
+                    onChange={(e) => handleInputChange('pastor_nome', e.target.value)}
                     placeholder="Pastor João Silva"
+                    maxLength={100}
                   />
                 </div>
                 <div>
@@ -277,8 +325,9 @@ const Dashboard = () => {
                     id="pastorEmail"
                     type="email"
                     value={newChurch.pastor_email}
-                    onChange={(e) => setNewChurch({...newChurch, pastor_email: e.target.value})}
+                    onChange={(e) => handleInputChange('pastor_email', e.target.value)}
                     placeholder="pastor@igreja.com.br"
+                    maxLength={255}
                   />
                 </div>
               </div>
