@@ -12,27 +12,48 @@ export type Database = {
       clientes: {
         Row: {
           ativo: boolean | null
+          cnpj: string | null
           created_at: string | null
           email: string
+          full_name: string | null
           id: string
+          members: number | null
           nome: string
+          phone: string | null
+          status: string | null
+          tag: string | null
           updated_at: string | null
+          user_id: string | null
         }
         Insert: {
           ativo?: boolean | null
+          cnpj?: string | null
           created_at?: string | null
           email: string
+          full_name?: string | null
           id?: string
+          members?: number | null
           nome: string
+          phone?: string | null
+          status?: string | null
+          tag?: string | null
           updated_at?: string | null
+          user_id?: string | null
         }
         Update: {
           ativo?: boolean | null
+          cnpj?: string | null
           created_at?: string | null
           email?: string
+          full_name?: string | null
           id?: string
+          members?: number | null
           nome?: string
+          phone?: string | null
+          status?: string | null
+          tag?: string | null
           updated_at?: string | null
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -159,6 +180,10 @@ export type Database = {
       get_current_user_role: {
         Args: Record<PropertyKey, never>
         Returns: Database["public"]["Enums"]["user_role"]
+      }
+      inactivate_expired_trial_clients: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
       }
       user_has_church_access: {
         Args: { church_id: string }
