@@ -142,8 +142,8 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
         throw clientError;
       }
 
-      // Fazer cast do resultado para o tipo correto
-      const result = clientResult as TrialClientResult;
+      // Fazer cast seguro do resultado para o tipo correto
+      const result = clientResult as unknown as TrialClientResult;
 
       // Verificar resultado da função
       if (!result?.success) {
