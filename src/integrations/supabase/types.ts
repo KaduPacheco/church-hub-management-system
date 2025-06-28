@@ -169,6 +169,21 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      check_trial_expired: {
+        Args: { client_user_id: string }
+        Returns: boolean
+      }
+      create_trial_client: {
+        Args: {
+          p_user_id: string
+          p_full_name: string
+          p_phone: string
+          p_cnpj: string
+          p_members: number
+          p_email: string
+        }
+        Returns: Json
+      }
       get_current_user_cliente_id: {
         Args: Record<PropertyKey, never>
         Returns: string
@@ -187,6 +202,10 @@ export type Database = {
       }
       user_has_church_access: {
         Args: { church_id: string }
+        Returns: boolean
+      }
+      validate_cnpj: {
+        Args: { cnpj_input: string }
         Returns: boolean
       }
     }

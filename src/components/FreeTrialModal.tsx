@@ -77,81 +77,73 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
     setIsLoading(true);
     
     try {
-      console.log('Iniciando cadastro...', { email: data.email });
-      
-      // Limpar e validar CNPJ
-      const cleanCnpj = data.cnpj.replace(/[^\d]/g, '');
-      console.log('CNPJ limpo:', cleanCnpj);
-      
-      // Criar usuário no Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+      // Sanitizar e validar dados
+      const sanitizedData = {
+        fullName: data.fullName.trim(),
+        phone: data.phone.trim(),
+        cnpj: data.cnpj.replace(/[^\d]/g, ''),
+        members: data.members,
         email: data.email.toLowerCase().trim(),
         password: data.password,
+      };
+
+      // Verificar se CNPJ tem exatamente 14 dígitos após limpeza
+      if (sanitizedData.cnpj.length !== 14) {
+        throw new Error('CNPJ deve ter exatamente 14 dígitos');
+      }
+
+      // Criar usuário no Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: sanitizedData.email,
+        password: sanitizedData.password,
         options: {
           data: {
-            full_name: data.fullName.trim(),
-          }
+            full_name: sanitizedData.fullName,
+          },
+          emailRedirectTo: `${window.location.origin}/dashboard`
         }
       });
 
       if (authError) {
-        console.error('Erro no auth:', authError);
         throw authError;
       }
 
       if (!authData.user) {
-        throw new Error('Erro ao criar usuário');
+        throw new Error('Falha na criação do usuário');
       }
 
-      console.log('Usuário criado com sucesso:', authData.user.id);
-
-      // Aguardar um momento para garantir que o usuário foi criado
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Criar perfil do cliente
-      const clientData = {
-        user_id: authData.user.id,
-        full_name: data.fullName.trim(),
-        phone: data.phone.trim(),
-        cnpj: cleanCnpj,
-        members: data.members,
-        email: data.email.toLowerCase().trim(),
-        nome: data.fullName.trim(), // Para compatibilidade
-        status: 'ativo',
-        tag: 'Período de teste',
-      };
-
-      console.log('Dados do cliente a serem inseridos:', clientData);
-
-      const { error: clientError } = await supabase
-        .from('clientes')
-        .insert(clientData);
+      // Usar a função segura do banco para criar o cliente
+      const { data: clientResult, error: clientError } = await supabase.rpc(
+        'create_trial_client',
+        {
+          p_user_id: authData.user.id,
+          p_full_name: sanitizedData.fullName,
+          p_phone: sanitizedData.phone,
+          p_cnpj: sanitizedData.cnpj,
+          p_members: sanitizedData.members,
+          p_email: sanitizedData.email,
+        }
+      );
 
       if (clientError) {
-        console.error('Erro ao criar cliente:', clientError);
+        // Se falhar, tentar limpar o usuário criado no Auth
+        try {
+          await supabase.auth.admin.deleteUser(authData.user.id);
+        } catch (cleanupError) {
+          console.error('Erro ao limpar usuário após falha:', cleanupError);
+        }
         throw clientError;
       }
 
-      console.log('Cliente criado com sucesso');
-
-      // Criar usuário na tabela usuarios
-      const { error: userError } = await supabase
-        .from('usuarios')
-        .insert({
-          id: authData.user.id,
-          email: data.email.toLowerCase().trim(),
-          nome: data.fullName.trim(),
-          role: 'cliente',
-          cliente_id: null, // Será atualizado depois se necessário
-          ativo: true,
-        });
-
-      if (userError) {
-        console.error('Erro ao criar usuário na tabela usuarios:', userError);
-        errorHandler.logError(userError, {
-          action: 'createUserProfile',
-          context: { userId: authData.user.id }
-        });
+      // Verificar resultado da função
+      if (!clientResult?.success) {
+        // Se falhar, tentar limpar o usuário criado no Auth
+        try {
+          await supabase.auth.admin.deleteUser(authData.user.id);
+        } catch (cleanupError) {
+          console.error('Erro ao limpar usuário após falha:', cleanupError);
+        }
+        throw new Error(clientResult?.error || 'Erro ao criar cliente');
       }
 
       toast({
@@ -168,8 +160,6 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
       }, 2000);
 
     } catch (error: any) {
-      console.error('Erro durante o cadastro:', error);
-      
       errorHandler.logError(error, {
         action: 'freeTrialSignup',
         context: { email: data.email },
@@ -178,16 +168,19 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
 
       let errorMessage = 'Erro inesperado durante o cadastro';
       
-      if (error.message?.includes('duplicate key')) {
-        if (error.message.includes('email')) {
-          errorMessage = 'Este email já está cadastrado';
-        } else if (error.message.includes('cnpj')) {
-          errorMessage = 'Este CNPJ já está cadastrado';
-        }
+      // Tratar erros específicos de forma segura
+      if (error.message?.includes('Email já cadastrado') || error.message?.includes('duplicate key')) {
+        errorMessage = 'Este email já está cadastrado';
+      } else if (error.message?.includes('CNPJ já cadastrado')) {
+        errorMessage = 'Este CNPJ já está cadastrado';
+      } else if (error.message?.includes('CNPJ inválido')) {
+        errorMessage = 'CNPJ informado é inválido';
       } else if (error.message?.includes('User already registered')) {
         errorMessage = 'Este email já está cadastrado';
       } else if (error.message?.includes('over_email_send_rate_limit')) {
         errorMessage = 'Muitas tentativas de cadastro. Aguarde alguns minutos e tente novamente.';
+      } else if (error.code === '23505') {
+        errorMessage = 'Email ou CNPJ já cadastrado';
       } else if (error.code === '42501') {
         errorMessage = 'Erro de permissão. Tente novamente em alguns instantes.';
       }
@@ -227,6 +220,7 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
                       placeholder="Digite seu nome completo" 
                       {...field} 
                       disabled={isLoading}
+                      maxLength={100}
                     />
                   </FormControl>
                   <FormMessage />
@@ -246,6 +240,7 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
                         placeholder="(11) 99999-9999" 
                         {...field} 
                         disabled={isLoading}
+                        maxLength={15}
                       />
                     </FormControl>
                     <FormMessage />
@@ -266,6 +261,8 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
                         {...field} 
                         onChange={e => field.onChange(parseInt(e.target.value) || 0)}
                         disabled={isLoading}
+                        min="1"
+                        max="10000"
                       />
                     </FormControl>
                     <FormMessage />
@@ -285,6 +282,7 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
                       placeholder="00.000.000/0000-00" 
                       {...field} 
                       disabled={isLoading}
+                      maxLength={18}
                     />
                   </FormControl>
                   <FormMessage />
@@ -304,6 +302,7 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
                       placeholder="seu@email.com" 
                       {...field} 
                       disabled={isLoading}
+                      maxLength={255}
                     />
                   </FormControl>
                   <FormMessage />
@@ -324,6 +323,7 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
                         placeholder="Mínimo 8 caracteres" 
                         {...field} 
                         disabled={isLoading}
+                        maxLength={128}
                       />
                       <Button
                         type="button"
@@ -332,6 +332,7 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
                         className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                         onClick={() => setShowPassword(!showPassword)}
                         disabled={isLoading}
+                        tabIndex={-1}
                       >
                         {showPassword ? (
                           <EyeOff className="h-4 w-4" />
