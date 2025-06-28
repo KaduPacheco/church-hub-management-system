@@ -23,7 +23,6 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import { validateChurchData } from '@/utils/inputValidation';
 import { errorHandler } from '@/utils/errorHandler';
 
 const freeTrialSchema = z.object({
@@ -78,8 +77,11 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
     setIsLoading(true);
     
     try {
+      console.log('Iniciando cadastro...', { email: data.email });
+      
       // Limpar e validar CNPJ
       const cleanCnpj = data.cnpj.replace(/[^\d]/g, '');
+      console.log('CNPJ limpo:', cleanCnpj);
       
       // Criar usuário no Supabase Auth
       const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -93,6 +95,7 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
       });
 
       if (authError) {
+        console.error('Erro no auth:', authError);
         throw authError;
       }
 
@@ -100,26 +103,36 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
         throw new Error('Erro ao criar usuário');
       }
 
+      console.log('Usuário criado com sucesso:', authData.user.id);
+
+      // Aguardar um momento para garantir que o usuário foi criado
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
       // Criar perfil do cliente
+      const clientData = {
+        user_id: authData.user.id,
+        full_name: data.fullName.trim(),
+        phone: data.phone.trim(),
+        cnpj: cleanCnpj,
+        members: data.members,
+        email: data.email.toLowerCase().trim(),
+        nome: data.fullName.trim(), // Para compatibilidade
+        status: 'ativo',
+        tag: 'Período de teste',
+      };
+
+      console.log('Dados do cliente a serem inseridos:', clientData);
+
       const { error: clientError } = await supabase
         .from('clientes')
-        .insert({
-          user_id: authData.user.id,
-          full_name: data.fullName.trim(),
-          phone: data.phone.trim(),
-          cnpj: cleanCnpj,
-          members: data.members,
-          email: data.email.toLowerCase().trim(),
-          nome: data.fullName.trim(), // Para compatibilidade
-          status: 'ativo',
-          tag: 'Período de teste',
-        });
+        .insert(clientData);
 
       if (clientError) {
-        // Se falhar ao criar o cliente, tentar limpar o usuário do Auth
-        await supabase.auth.admin.deleteUser(authData.user.id);
+        console.error('Erro ao criar cliente:', clientError);
         throw clientError;
       }
+
+      console.log('Cliente criado com sucesso');
 
       // Criar usuário na tabela usuarios
       const { error: userError } = await supabase
@@ -134,6 +147,7 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
         });
 
       if (userError) {
+        console.error('Erro ao criar usuário na tabela usuarios:', userError);
         errorHandler.logError(userError, {
           action: 'createUserProfile',
           context: { userId: authData.user.id }
@@ -154,6 +168,8 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
       }, 2000);
 
     } catch (error: any) {
+      console.error('Erro durante o cadastro:', error);
+      
       errorHandler.logError(error, {
         action: 'freeTrialSignup',
         context: { email: data.email },
@@ -170,6 +186,10 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
         }
       } else if (error.message?.includes('User already registered')) {
         errorMessage = 'Este email já está cadastrado';
+      } else if (error.message?.includes('over_email_send_rate_limit')) {
+        errorMessage = 'Muitas tentativas de cadastro. Aguarde alguns minutos e tente novamente.';
+      } else if (error.code === '42501') {
+        errorMessage = 'Erro de permissão. Tente novamente em alguns instantes.';
       }
 
       toast({

@@ -25,15 +25,21 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Atualizar políticas RLS para incluir verificação de status
+-- Habilitar RLS na tabela clientes
+ALTER TABLE public.clientes ENABLE ROW LEVEL SECURITY;
+
+-- Remover políticas antigas se existirem
 DROP POLICY IF EXISTS "Clients can view their own data" ON public.clientes;
+DROP POLICY IF EXISTS "Users can create client profile during signup" ON public.clientes;
+
+-- Política para permitir que usuários vejam apenas seus próprios dados
 CREATE POLICY "Clients can view their own data" ON public.clientes
-  FOR SELECT USING (
-    public.get_current_user_role() = 'cliente' AND 
-    id = public.get_current_user_cliente_id() AND
-    status = 'ativo'
-  );
+  FOR SELECT USING (user_id = auth.uid() AND status = 'ativo');
 
 -- Política para permitir inserção durante cadastro
 CREATE POLICY "Users can create client profile during signup" ON public.clientes
   FOR INSERT WITH CHECK (user_id = auth.uid());
+
+-- Política para permitir atualização dos próprios dados
+CREATE POLICY "Users can update their own data" ON public.clientes
+  FOR UPDATE USING (user_id = auth.uid());
