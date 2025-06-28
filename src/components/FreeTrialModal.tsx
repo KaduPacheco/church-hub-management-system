@@ -81,6 +81,7 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
   });
 
   const onSubmit = async (data: FreeTrialFormData) => {
+    console.log('Iniciando processo de cadastro...');
     setIsLoading(true);
     
     try {
@@ -94,11 +95,18 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
         password: data.password,
       };
 
+      console.log('Dados sanitizados:', { 
+        ...sanitizedData, 
+        password: '[HIDDEN]' 
+      });
+
       // Verificar se CNPJ tem exatamente 14 dígitos após limpeza
       if (sanitizedData.cnpj.length !== 14) {
         throw new Error('CNPJ deve ter exatamente 14 dígitos');
       }
 
+      console.log('Criando usuário no Supabase Auth...');
+      
       // Criar usuário no Supabase Auth
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: sanitizedData.email,
@@ -112,12 +120,17 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
       });
 
       if (authError) {
+        console.error('Erro na criação do usuário:', authError);
         throw authError;
       }
 
       if (!authData.user) {
+        console.error('Usuário não foi criado');
         throw new Error('Falha na criação do usuário');
       }
+
+      console.log('Usuário criado com sucesso:', authData.user.id);
+      console.log('Chamando função create_trial_client...');
 
       // Usar a função segura do banco para criar o cliente
       const { data: clientResult, error: clientError } = await supabase.rpc(
@@ -132,29 +145,38 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
         }
       );
 
+      console.log('Resultado da função create_trial_client:', clientResult);
+      
       if (clientError) {
+        console.error('Erro ao criar cliente:', clientError);
+        
         // Se falhar, tentar limpar o usuário criado no Auth
         try {
-          await supabase.auth.admin.deleteUser(authData.user.id);
+          console.log('Tentando limpar usuário criado...');
+          // Note: admin.deleteUser não está disponível no client, vamos deixar o usuário ser criado
+          // O usuário poderá tentar novamente ou fazer login
         } catch (cleanupError) {
           console.error('Erro ao limpar usuário após falha:', cleanupError);
         }
         throw clientError;
       }
 
+      // Verificar se o resultado é válido
+      if (!clientResult) {
+        throw new Error('Nenhum resultado retornado da função');
+      }
+
       // Fazer cast seguro do resultado para o tipo correto
       const result = clientResult as unknown as TrialClientResult;
+      console.log('Resultado parseado:', result);
 
       // Verificar resultado da função
       if (!result?.success) {
-        // Se falhar, tentar limpar o usuário criado no Auth
-        try {
-          await supabase.auth.admin.deleteUser(authData.user.id);
-        } catch (cleanupError) {
-          console.error('Erro ao limpar usuário após falha:', cleanupError);
-        }
+        console.error('Função retornou erro:', result?.error);
         throw new Error(result?.error || 'Erro ao criar cliente');
       }
+
+      console.log('Cliente criado com sucesso!');
 
       toast({
         title: "Cadastro realizado com sucesso!",
@@ -170,6 +192,8 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
       }, 2000);
 
     } catch (error: any) {
+      console.error('Erro durante o cadastro:', error);
+      
       errorHandler.logError(error, {
         action: 'freeTrialSignup',
         context: { email: data.email },
@@ -180,19 +204,23 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
       
       // Tratar erros específicos de forma segura
       if (error.message?.includes('Email já cadastrado') || error.message?.includes('duplicate key')) {
-        errorMessage = 'Este email já está cadastrado';
+        errorMessage = 'Este email já está cadastrado. Tente fazer login ou use outro email.';
       } else if (error.message?.includes('CNPJ já cadastrado')) {
-        errorMessage = 'Este CNPJ já está cadastrado';
+        errorMessage = 'Este CNPJ já está cadastrado. Tente usar outro CNPJ.';
       } else if (error.message?.includes('CNPJ inválido')) {
-        errorMessage = 'CNPJ informado é inválido';
+        errorMessage = 'CNPJ informado é inválido. Verifique os dígitos.';
       } else if (error.message?.includes('User already registered')) {
-        errorMessage = 'Este email já está cadastrado';
+        errorMessage = 'Este email já está cadastrado. Tente fazer login.';
       } else if (error.message?.includes('over_email_send_rate_limit')) {
         errorMessage = 'Muitas tentativas de cadastro. Aguarde alguns minutos e tente novamente.';
+      } else if (error.message?.includes('Email rate limit exceeded')) {
+        errorMessage = 'Limite de emails excedido. Aguarde alguns minutos antes de tentar novamente.';
       } else if (error.code === '23505') {
-        errorMessage = 'Email ou CNPJ já cadastrado';
+        errorMessage = 'Email ou CNPJ já cadastrado no sistema.';
       } else if (error.code === '42501') {
         errorMessage = 'Erro de permissão. Tente novamente em alguns instantes.';
+      } else if (error.message) {
+        errorMessage = error.message;
       }
 
       toast({
