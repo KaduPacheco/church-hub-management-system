@@ -52,6 +52,13 @@ const freeTrialSchema = z.object({
 
 type FreeTrialFormData = z.infer<typeof freeTrialSchema>;
 
+// Tipo para o retorno da função create_trial_client
+interface TrialClientResult {
+  success: boolean;
+  error?: string;
+  client_id?: string;
+}
+
 interface FreeTrialModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -135,15 +142,18 @@ export const FreeTrialModal = ({ isOpen, onClose }: FreeTrialModalProps) => {
         throw clientError;
       }
 
+      // Fazer cast do resultado para o tipo correto
+      const result = clientResult as TrialClientResult;
+
       // Verificar resultado da função
-      if (!clientResult?.success) {
+      if (!result?.success) {
         // Se falhar, tentar limpar o usuário criado no Auth
         try {
           await supabase.auth.admin.deleteUser(authData.user.id);
         } catch (cleanupError) {
           console.error('Erro ao limpar usuário após falha:', cleanupError);
         }
-        throw new Error(clientResult?.error || 'Erro ao criar cliente');
+        throw new Error(result?.error || 'Erro ao criar cliente');
       }
 
       toast({
